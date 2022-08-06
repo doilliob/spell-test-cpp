@@ -140,6 +140,9 @@ namespace spellchecker
 			}
 
 		}
+		// Add response to cache
+		m_searchCache[word_lowercase] = result;
+
 		return result;
 	}
 }
