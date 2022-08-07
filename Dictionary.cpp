@@ -17,48 +17,62 @@ namespace spellchecker
 		m_secondLetterIndex.clear();
 	}
 
-	void Dictionary::Add(const std::string word)
+	void Dictionary::Add(const std::string& word)
 	{
-		if (word.size() > 0)
+		if (word.empty())
 		{
-			SharedString shared(new std::string(word));
+			return; // sometimes it's more convinient to return early to avoid nested trivial `if` branches.
+		}
+		// I kept `{` and `}` only to retain original formatting. They can be safely removed.
+		{
+			// When constructing shared_ptr from object having public constructor it's usually better to use
+			// std::make_shared(), because of more optimal memory usage.
+			// Retain index in added shared word to use it later, in corrections.
+			SharedString shared{std::make_shared<std::string>(word), m_nextIndex++};
 
 			// First lowercases letter
 			char first = std::tolower(word[0]);
+			// this entire branch is not needed as the next operator[] + push_back will do the same job.
+			/*
 			if (m_firstLetterIndex.empty() ||
 				m_firstLetterIndex.find(first) == m_firstLetterIndex.end())
 			{
 				m_firstLetterIndex[first] = VectorOfSharedStrings();
 			}
+			*/
 			m_firstLetterIndex[first].push_back(shared);
 
 			// Second letter
 			if (word.size() > 1)
 			{
 				char second = std::tolower(word[1]);
+				// this branch is not needed for the same reason as previous
+				/*
 				if (m_secondLetterIndex.empty() ||
 					m_secondLetterIndex.find(second) == m_secondLetterIndex.end())
 				{
 					m_secondLetterIndex[second] = VectorOfSharedStrings();
 				}
+				*/
 				m_secondLetterIndex[second].push_back(shared);
 			}
 		}
 	}
 
-	std::string Dictionary::toLowerCase(const std::string word)
+	std::string Dictionary::toLowerCase(std::string word)
 	{
 		// Convert search word to lowercase
-		std::string word_lowercase = word;
-		std::transform(word_lowercase.begin(), word_lowercase.end(), word_lowercase.begin(),
+		// since `word` is passed by value it may be modified directly
+		// std::string word_lowercase = word;
+		std::transform(word.begin(), word.end(), word.begin(),
 			[](unsigned char c) { return std::tolower(c); });
-		return word_lowercase;
+		return word;
 	}
 
-	SearchResult Dictionary::Search(const std::string word)
+	SearchResult Dictionary::Search(const std::string& word)
 	{
 		// Empty string
-		if (word.size() == 0)
+		if (word.empty())
 		{
 			return SearchResult();
 		}
@@ -67,12 +81,16 @@ namespace spellchecker
 		auto word_lowercase = toLowerCase(word);
 
 		// Get response from cache if exists
-		if (!m_searchCache.empty())
+		// `find` will return `end()` if map is empty, so this if is not required
+//		if (!m_searchCache.empty())
 		{
 			auto found = m_searchCache.find(word_lowercase);
 			if (found != m_searchCache.end())
 			{
-				return m_searchCache[word_lowercase];
+				// the next call will perform `find()` again.
+				// It's better to use iterator since it already points to the needed value here.
+				// return m_searchCache[word_lowercase];
+				return found->second;
 			}
 		}
 
@@ -82,20 +100,24 @@ namespace spellchecker
 		// Search words in storage by first/second letter
 		std::set<SharedString> fromIndex; // to avoid duplicates from different indexes
 		auto getIndexed = [this](char letter, std::set<SharedString> *storage) {
+			// General issue: use already got iterators instead of `operator []`.
 			// Extract first letter values
-			if (!m_firstLetterIndex.empty() &&
-				m_firstLetterIndex.find(letter) != m_firstLetterIndex.end())
+			auto itFirst = m_firstLetterIndex.find(letter);
+			if (/*!m_firstLetterIndex.empty() && */ // < this is also not needed
+				itFirst != m_firstLetterIndex.end())
 			{
-				for (auto shared : m_firstLetterIndex[letter])
+				// If possible, better use const references to avoid copies
+				for (const auto& shared : itFirst->second)
 				{
 					storage->insert(shared);
 				}
 			}
 			// Extract second letter values
-			if (!m_secondLetterIndex.empty() &&
-				m_secondLetterIndex.find(letter) != m_secondLetterIndex.end())
+			auto itSecond = m_secondLetterIndex.find(letter);
+			if (/* !m_secondLetterIndex.empty() && */ // < and this too
+				itSecond != m_secondLetterIndex.end())
 			{
-				for (auto shared : m_secondLetterIndex[letter])
+				for (const auto& shared : itSecond->second)
 				{
 					storage->insert(shared);
 				}
@@ -113,7 +135,7 @@ namespace spellchecker
 		for (const auto sharedWord : fromIndex)
 		{	
 			// Convert testing word to lowercase
-			const auto dict_lowercase = toLowerCase(*sharedWord);
+			const auto dict_lowercase = toLowerCase(*sharedWord.m_string);
 
 			// Direct coincidence
 			if (dict_lowercase == word_lowercase)
@@ -121,10 +143,11 @@ namespace spellchecker
 				result.found = true;
 				// Corrections can be found earlier
 				// E.g. 'fall', 'falls'
-				if (result.corrections.size() > 0)
-				{
+				// It's not necessary to check the size here
+				//if (result.corrections.size() > 0)
+				//{
 					result.corrections.clear();
-				}
+				//}
 				return result;
 			}
 
@@ -135,7 +158,7 @@ namespace spellchecker
 			if (edits <= 2)
 			{
 				// Else add correction to result
-				Correction corr = { *sharedWord, edits};
+				Correction corr = { *sharedWord.m_string, edits, sharedWord.m_index};
 				result.corrections.push_back(corr);
 			}
 

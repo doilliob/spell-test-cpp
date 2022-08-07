@@ -1,7 +1,9 @@
 #pragma once
 #include <iostream>
 #include "Common.h"
-#define MIN(x,y) ((x) < (y) ? (x) : (y))
+// The next definition can produce errors in system code (for example winapi define this macro)
+// In c++ better use std::min() and std::max()
+// #define MIN(x,y) ((x) < (y) ? (x) : (y))
 
 namespace spellchecker
 {
